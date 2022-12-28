@@ -1,0 +1,68 @@
+# - Airflow Env variables.
+substitutions:
+  _COMPOSER_ENV_NAME: airflow-demo
+  _COMPOSER_REGION: asia-south1
+
+# Access the id_github file from Secret Manager, and setup SSH
+steps:
+  - name: gcr.io/cloud-builders/git
+    args:
+      - '-c'
+      - |
+        echo "$$SSH_KEY2" >> /root/.ssh/id_rsa
+        chmod 400 /root/.ssh/id_rsa
+        ssh-keyscan -t rsa github.com > known_hosts.github
+        cp known_hosts.github /root/.ssh/known_hosts
+    entrypoint: bash
+    secretEnv:
+      - SSH_KEY2
+    volumes:
+      - name: ssh
+        path: /root/.ssh
+# Clone the repository
+  - name: gcr.io/cloud-builders/git
+    args:
+      - clone
+      - 'git@github.com:FutureGeneraliBusinessIntelligence/sample-app2-tag.git'
+      - checkout release3
+    volumes:
+      - name: ssh
+        path: /root/.ssh
+# Removing the old build Dags object
+  - name: 'gcr.io/cloud-builders/gsutil'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gsutil -m rm -r gs://asia-south1-airflow-demo-4a45701b-bucket/dags/*
+#Add dags to Dags folder
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - '-c'
+      - |
+        for dagfile in $(ls dags)
+          do
+          gcloud composer environments storage dags import \
+          --environment $_COMPOSER_ENV_NAME \
+          --location $_COMPOSER_REGION \
+          --source dags/$$dagfile
+          done
+    entrypoint: bash
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - '-t'
+      - >-
+        $_COMPOSER_REGION-docker.pkg.dev/$PROJECT_ID/quickstart-docker-repo/quickstart-image:tag6
+      - .
+images:
+  - >-
+    $_COMPOSER_REGION-docker.pkg.dev/$PROJECT_ID/quickstart-docker-repo/quickstart-image:tag6
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/591981386330/secrets/SSH_KEY2/versions/latest
+      env: SSH_KEY2
+
+      
